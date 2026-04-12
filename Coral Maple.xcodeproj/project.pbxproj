@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		E32A49732F8BD8080048F7DE /* CoralCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000000000000002AA /* CoralCore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		E3A099F82F8B301800D2942A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E32A49732F8BD8080048F7DE /* CoralCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +117,7 @@
 			);
 			name = "Coral Maple";
 			packageProductDependencies = (
+				CC00000000000000000002AA /* CoralCore */,
 			);
 			productName = "Coral Maple";
 			productReference = E3A099E82F8B301600D2942A /* Coral Maple.app */;
@@ -195,6 +201,9 @@
 			);
 			mainGroup = E3A099DF2F8B301600D2942A;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				CC00000000000000000001AA /* XCLocalSwiftPackageReference "Packages/CoralCore" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = E3A099E92F8B301600D2942A /* Products */;
 			projectDirPath = "";
@@ -412,6 +421,8 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Photos on network drivees";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Coral Maple needs access to your photo library to browse and edit your photos.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -477,6 +488,8 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Photos on network drivees";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Coral Maple needs access to your photo library to browse and edit your photos.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -657,6 +670,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		CC00000000000000000001AA /* XCLocalSwiftPackageReference "Packages/CoralCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CoralCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CC00000000000000000002AA /* CoralCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC00000000000000000001AA /* XCLocalSwiftPackageReference "Packages/CoralCore" */;
+			productName = CoralCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = E3A099E02F8B301600D2942A /* Project object */;
 }

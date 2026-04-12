@@ -1,0 +1,2 @@
+- [Architecture decisions](project_architecture_decisions.md) — XMP conflicts, pipeline topology, FileProvider scope, deployment targets, SwiftData removal, namespace URI
+- [iPadOS SMB limitation](project_smb_ipad.md) — smbclientd paths can't be enumerated; need AMSMB2 for direct SMB connection
