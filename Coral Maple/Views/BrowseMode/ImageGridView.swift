@@ -107,16 +107,27 @@ struct ImageGridView: View {
 
     @ViewBuilder
     private var gridContent: some View {
-        if viewModel.totalAssetCount == 0 && !viewModel.isLoading {
+        if viewModel.totalAssetCount == 0 && viewModel.subfolders.isEmpty && !viewModel.isLoading {
             emptyState
         } else {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 4) {
+                    // Subfolders first
+                    ForEach(viewModel.subfolders) { folder in
+                        FolderTile(folder: folder, size: thumbnailSize.dimension)
+                            .onTapGesture {
+                                let container = SourceContainer(id: folder.id, name: folder.name, children: [], imageCount: 0)
+                                if let source = viewModel.activeSource {
+                                    Task { await viewModel.loadAssets(from: container, source: source) }
+                                }
+                            }
+                    }
+
+                    // Images
                     ForEach(0..<viewModel.assetSlots.count, id: \.self) { index in
                         let slot = viewModel.assetSlots[index]
 
                         if let asset = slot {
-                            // Loaded cell
                             ThumbnailCell(
                                 asset: asset,
                                 size: thumbnailSize.dimension,
@@ -129,7 +140,6 @@ struct ImageGridView: View {
                                 viewModel.selectAsset(asset.id)
                             }
                         } else {
-                            // Placeholder — request this page
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(JM.surfaceAlt)
                                 .frame(width: thumbnailSize.dimension, height: thumbnailSize.dimension)
@@ -236,5 +246,28 @@ struct ThumbnailCell: View {
                 loadTask?.cancel()
                 loadTask = nil
             }
+    }
+}
+
+// MARK: - Folder Tile
+
+struct FolderTile: View {
+    let folder: SourceContainer
+    let size: CGFloat
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "folder.fill")
+                .font(.system(size: size * 0.3))
+                .foregroundStyle(JM.textMuted)
+            Text(folder.name)
+                .font(JM.Font.caption(.medium))
+                .foregroundStyle(JM.textMain)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+        }
+        .frame(width: size, height: size)
+        .background(JM.surfaceAlt)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 }
