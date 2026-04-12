@@ -133,12 +133,12 @@ struct ImageGridView: View {
                                 size: thumbnailSize.dimension,
                                 isSelected: viewModel.selectedAssetIDs.contains(asset.id)
                             )
-                            .onTapGesture(count: 2) {
+                            .simultaneousGesture(TapGesture(count: 2).onEnded {
                                 viewModel.enterFullImage(assetID: asset.id)
-                            }
-                            .onTapGesture(count: 1) {
+                            })
+                            .simultaneousGesture(TapGesture(count: 1).onEnded {
                                 viewModel.selectAsset(asset.id)
-                            }
+                            })
                         } else {
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(JM.surfaceAlt)
@@ -150,6 +150,8 @@ struct ImageGridView: View {
                     }
                 }
                 .padding(4)
+                // Force SwiftUI to recreate cells when folder changes
+                .id(viewModel.activeContainer?.id ?? "")
             }
         }
     }
@@ -224,28 +226,36 @@ struct ThumbnailCell: View {
                     .strokeBorder(JM.primary, lineWidth: isSelected ? 2 : 0)
             )
             .accessibilityLabel(asset.filename)
+            .onChange(of: asset.id) { _, _ in
+                // Asset changed (folder switch) — clear stale thumbnail
+                thumbnail = nil
+                loadTask?.cancel()
+                loadTask = nil
+            }
             .onAppear {
                 isVisible = true
                 guard thumbnail == nil, loadTask == nil else { return }
-                loadTask = Task {
-                    // Small delay — if the cell scrolls away before this fires,
-                    // onDisappear cancels the task, saving the load entirely.
-                    try? await Task.sleep(for: .milliseconds(50))
-                    guard !Task.isCancelled, isVisible else { return }
-                    guard let source = viewModel.activeSource else { return }
-                    let thumbSize = CGSize(width: size * 2, height: size * 2)
-                    let result = await viewModel.thumbnail(for: asset, size: thumbSize, source: source)
-                    guard !Task.isCancelled else { return }
-                    withAnimation(.easeIn(duration: 0.15)) {
-                        thumbnail = result
-                    }
-                }
+                startLoad()
             }
             .onDisappear {
                 isVisible = false
                 loadTask?.cancel()
                 loadTask = nil
             }
+    }
+
+    private func startLoad() {
+        loadTask = Task {
+            try? await Task.sleep(for: .milliseconds(50))
+            guard !Task.isCancelled, isVisible else { return }
+            guard let source = viewModel.activeSource else { return }
+            let thumbSize = CGSize(width: size * 2, height: size * 2)
+            let result = await viewModel.thumbnail(for: asset, size: thumbSize, source: source)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeIn(duration: 0.15)) {
+                thumbnail = result
+            }
+        }
     }
 }
 

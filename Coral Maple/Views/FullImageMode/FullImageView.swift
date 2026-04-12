@@ -1,45 +1,59 @@
 import SwiftUI
 import CoralCore
 
-/// Center panel in full-image mode — zoomable image canvas.
 struct FullImageView: View {
     let assetID: String
     @Environment(UnifiedLibraryViewModel.self) private var viewModel
     @State private var zoomScale: CGFloat = 1.0
+    @State private var baseZoomScale: CGFloat = 1.0
+    @State private var zoomAnchor: UnitPoint = .center
     @State private var offset: CGSize = .zero
+    @State private var baseOffset: CGSize = .zero
+    @State private var loadedImage: CGImage?
+    @State private var isLoadingFullRes = true
+    @FocusState private var isFocused: Bool
 
     private var asset: ImageAsset? {
-        viewModel.assetSlots.compactMap { $0 }.first { $0.id == assetID }
+        viewModel.loadedAssetsByID[assetID]
     }
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                JM.canvas
-                    .ignoresSafeArea()
+                JM.canvas.ignoresSafeArea()
 
-                if asset != nil {
-                    // Placeholder — full image loading will be backed by the pipeline in Phase 2
-                    Rectangle()
-                        .fill(JM.surfaceAlt)
-                        .aspectRatio(
-                            CGFloat(asset?.pixelWidth ?? 4) / CGFloat(max(asset?.pixelHeight ?? 3, 1)),
-                            contentMode: .fit
-                        )
-                        .scaleEffect(zoomScale)
+                if let loadedImage {
+                    Image(decorative: loadedImage, scale: 1)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .scaleEffect(zoomScale, anchor: zoomAnchor)
                         .offset(offset)
                         .gesture(magnificationGesture)
-                        .gesture(dragGesture)
-                        .overlay(alignment: .bottomLeading) {
-                            zoomIndicator
-                        }
-                } else {
-                    Text("Image not found")
-                        .foregroundStyle(JM.textMuted)
+                        .simultaneousGesture(dragGesture)
+                }
+
+                if isLoadingFullRes {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(JM.textMuted)
+                }
+            }
+            .overlay(alignment: .bottomLeading) {
+                if loadedImage != nil {
+                    zoomIndicator
                 }
             }
         }
         .background(JM.canvas)
+        .contentShape(Rectangle())
+        .focusable()
+        .focused($isFocused)
+        .focusEffectDisabled()
+        .onAppear { isFocused = true }
+        .task(id: assetID) {
+            isFocused = true
+            await loadImage()
+        }
         #if os(macOS)
         .onKeyPress(.escape) {
             viewModel.exitFullImage()
@@ -59,20 +73,78 @@ struct FullImageView: View {
         }
     }
 
+    // MARK: - Load image
+
+    private func loadImage() async {
+        guard let source = viewModel.activeSource,
+              let asset else { return }
+        isLoadingFullRes = true
+        loadedImage = nil
+        zoomScale = 1.0
+        baseZoomScale = 1.0
+        zoomAnchor = .center
+        offset = .zero
+        baseOffset = .zero
+
+        do {
+            // Show thumbnail first (from memory cache — instant)
+            let thumbSize = CGSize(width: 800, height: 800)
+            if let thumb = await viewModel.thumbnail(for: asset, size: thumbSize, source: source) {
+                loadedImage = thumb
+            }
+
+            // Load full resolution
+            let full = try await source.fullImage(for: asset)
+            withAnimation(.easeIn(duration: 0.15)) {
+                loadedImage = full
+                isLoadingFullRes = false
+            }
+        } catch {
+            NSLog("[CoralMaple] FullImageView: failed to load %@: %@", asset.filename, "\(error)")
+            isLoadingFullRes = false
+        }
+    }
+
     // MARK: - Gestures
 
     private var magnificationGesture: some Gesture {
         MagnifyGesture()
             .onChanged { value in
-                zoomScale = max(0.5, min(value.magnification, 10))
+                zoomScale = max(0.5, min(baseZoomScale * value.magnification, 10))
+            }
+            .onEnded { value in
+                zoomScale = max(0.5, min(baseZoomScale * value.magnification, 10))
+                baseZoomScale = zoomScale
+                if zoomScale <= 1.01 {
+                    zoomAnchor = .center
+                    offset = .zero
+                    baseOffset = .zero
+                    baseZoomScale = 1.0
+                    zoomScale = 1.0
+                }
             }
     }
 
     private var dragGesture: some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 1)
             .onChanged { value in
                 if zoomScale > 1 {
-                    offset = value.translation
+                    offset = CGSize(
+                        width: baseOffset.width + value.translation.width,
+                        height: baseOffset.height + value.translation.height
+                    )
+                }
+            }
+            .onEnded { value in
+                if zoomScale > 1 {
+                    baseOffset = offset
+                } else {
+                    // Swipe navigation when not zoomed
+                    if value.translation.width < -50 {
+                        viewModel.navigate(direction: 1)
+                    } else if value.translation.width > 50 {
+                        viewModel.navigate(direction: -1)
+                    }
                 }
             }
     }

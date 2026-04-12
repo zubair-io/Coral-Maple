@@ -5,14 +5,12 @@ import CoralCore
 enum DetailTab: String, CaseIterable {
     case info   = "Info"
     case color  = "Color"
-    case meta   = "Meta"
     case scopes = "Scopes"
 
     var icon: String {
         switch self {
         case .info:   return "info.circle"
         case .color:  return "slider.horizontal.3"
-        case .meta:   return "doc.text"
         case .scopes: return "waveform.path.ecg"
         }
     }
@@ -25,22 +23,18 @@ struct DetailPanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Tab content
             ScrollView {
                 switch selectedTab {
                 case .info:
                     InfoTabView()
                 case .color:
                     ColorTabView()
-                case .meta:
-                    MetaTabView()
                 case .scopes:
                     ScopesTabView()
                 }
             }
 
-            Divider()
-                .background(JM.border)
+            Divider().background(JM.border)
 
             // Bottom tab bar
             tabBar

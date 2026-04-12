@@ -2,23 +2,34 @@ import SwiftUI
 import UniformTypeIdentifiers
 import CoralCore
 
-/// Detail panel Info tab — file info, camera info, rating/flags/labels.
+/// Combined Info + Meta tab — file info, camera EXIF, location, IPTC, rating/flags.
 struct InfoTabView: View {
     @Environment(UnifiedLibraryViewModel.self) private var viewModel
+    @State private var metadata: ImageMetadata?
+    @State private var isLoadingMeta = false
+    @State private var metadataLoadTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             if let asset = viewModel.selectedAsset {
                 fileSection(asset)
                 Divider().background(JM.border)
-                cameraSection(asset)
-                Divider().background(JM.border)
                 cullingSection(asset)
+                Divider().background(JM.border)
+                cameraSection
+                Divider().background(JM.border)
+                locationSection
+                Divider().background(JM.border)
+                iptcSection
             } else {
                 noSelectionView
             }
         }
         .padding(12)
+        .onChange(of: viewModel.selectedAsset?.id) { _, _ in
+            loadMetadata()
+        }
+        .onAppear { loadMetadata() }
     }
 
     // MARK: - File section
@@ -29,12 +40,24 @@ struct InfoTabView: View {
 
             infoRow("Name", asset.filename)
 
-            if asset.pixelWidth > 0 && asset.pixelHeight > 0 {
+            if let w = metadata?.pixelWidth, let h = metadata?.pixelHeight, w > 0, h > 0 {
+                infoRow("Dimensions", "\(w) × \(h)")
+                let mp = Double(w * h) / 1_000_000
+                infoRow("Megapixels", String(format: "%.1f MP", mp))
+            } else if asset.pixelWidth > 0 {
                 infoRow("Dimensions", "\(asset.pixelWidth) × \(asset.pixelHeight)")
             }
 
             if let type = asset.uniformType {
                 infoRow("Format", type.localizedDescription ?? type.identifier)
+            }
+
+            if let depth = metadata?.bitDepth {
+                infoRow("Bit Depth", "\(depth)-bit")
+            }
+
+            if let cs = metadata?.colorSpace {
+                infoRow("Color Space", cs)
             }
 
             // Sidecar badge
@@ -55,24 +78,12 @@ struct InfoTabView: View {
                     .padding(.vertical, 3)
                     .background(JM.successBg)
                     .clipShape(Capsule())
-                    .overlay(Capsule().stroke(JM.primary.opacity(0.3), lineWidth: 1))
                 } else {
                     Text("No sidecar")
                         .font(JM.Font.caption())
                         .foregroundStyle(JM.textMuted)
                 }
             }
-        }
-    }
-
-    // MARK: - Camera section
-
-    private func cameraSection(_ asset: ImageAsset) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sectionHeader("CAMERA")
-            Text("EXIF data will appear here")
-                .font(JM.Font.caption())
-                .foregroundStyle(JM.textMuted)
         }
     }
 
@@ -85,20 +96,166 @@ struct InfoTabView: View {
             sectionHeader("RATING & FLAGS")
 
             FlagPillsView(flag: culling.flag) { flag in
-                Task {
-                    await viewModel.toggleFlag(flag, for: asset.id)
-                }
+                Task { await viewModel.toggleFlag(flag, for: asset.id) }
             }
 
             RatingView(rating: culling.rating) { rating in
-                Task {
-                    await viewModel.setRating(rating, for: asset.id)
-                }
+                Task { await viewModel.setRating(rating, for: asset.id) }
             }
 
             ColorLabelRow(activeLabel: culling.colorLabel) { label in
-                Task {
-                    await viewModel.toggleLabel(label, for: asset.id)
+                Task { await viewModel.toggleLabel(label, for: asset.id) }
+            }
+        }
+    }
+
+    // MARK: - Camera section
+
+    private var cameraSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionHeader("CAMERA")
+
+            if isLoadingMeta {
+                Text("Loading...")
+                    .font(JM.Font.caption())
+                    .foregroundStyle(JM.textMuted)
+            } else if let meta = metadata {
+                if let model = meta.cameraModel {
+                    infoRow("Camera", model)
+                }
+                if let make = meta.cameraMake, meta.cameraModel == nil {
+                    infoRow("Make", make)
+                }
+                if let lens = meta.lens {
+                    infoRow("Lens", lens)
+                }
+                if let fl = meta.focalLength {
+                    infoRow("Focal Length", fl)
+                }
+                if let ap = meta.aperture {
+                    infoRow("Aperture", ap)
+                }
+                if let ss = meta.shutterSpeed {
+                    infoRow("Shutter", ss)
+                }
+                if let iso = meta.iso {
+                    infoRow("ISO", iso)
+                }
+                if let flash = meta.flash {
+                    infoRow("Flash", flash)
+                }
+                if let date = meta.dateTaken {
+                    infoRow("Date Taken", date)
+                }
+
+                if meta.cameraModel == nil && meta.lens == nil && meta.aperture == nil {
+                    Text("No EXIF data")
+                        .font(JM.Font.caption())
+                        .foregroundStyle(JM.textMuted)
+                }
+            } else {
+                Text("No metadata")
+                    .font(JM.Font.caption())
+                    .foregroundStyle(JM.textMuted)
+            }
+        }
+    }
+
+    // MARK: - Location section
+
+    private var locationSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionHeader("LOCATION")
+
+            if let lat = metadata?.latitude, let lon = metadata?.longitude {
+                infoRow("Latitude", String(format: "%.6f", lat))
+                infoRow("Longitude", String(format: "%.6f", lon))
+            } else {
+                Text("No GPS data")
+                    .font(JM.Font.caption())
+                    .foregroundStyle(JM.textMuted)
+            }
+        }
+    }
+
+    // MARK: - IPTC section
+
+    private var iptcSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionHeader("IPTC")
+
+            if let meta = metadata {
+                if let title = meta.title {
+                    infoRow("Title", title)
+                }
+                if let caption = meta.caption {
+                    infoRow("Caption", caption)
+                }
+                if let copyright = meta.copyright {
+                    infoRow("Copyright", copyright)
+                }
+                if let keywords = meta.keywords, !keywords.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Keywords")
+                            .font(JM.Font.caption())
+                            .foregroundStyle(JM.textMuted)
+                        FlowLayout(spacing: 4) {
+                            ForEach(keywords, id: \.self) { kw in
+                                Text(kw)
+                                    .font(JM.Font.caption(.medium))
+                                    .foregroundStyle(JM.textMain)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(JM.surfaceAlt)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+                }
+
+                if meta.title == nil && meta.caption == nil && meta.copyright == nil && (meta.keywords?.isEmpty ?? true) {
+                    Text("No IPTC data")
+                        .font(JM.Font.caption())
+                        .foregroundStyle(JM.textMuted)
+                }
+            }
+        }
+    }
+
+    // MARK: - Load metadata
+
+    private func loadMetadata() {
+        metadataLoadTask?.cancel()
+        guard let asset = viewModel.selectedAsset,
+              let source = viewModel.activeSource else {
+            metadata = nil
+            return
+        }
+
+        isLoadingMeta = true
+        metadata = nil
+
+        metadataLoadTask = Task {
+            do {
+                let meta: ImageMetadata
+                if let fileURL = asset.fileURL {
+                    // Local file — read directly (fastest)
+                    meta = ImageMetadata.from(url: fileURL)
+                } else {
+                    // SMB / PhotoKit — download header data for metadata extraction
+                    let data = try await source.metadataData(for: asset)
+                    meta = ImageMetadata.from(data: data)
+                }
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    metadata = meta
+                    isLoadingMeta = false
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    metadata = ImageMetadata()
+                    isLoadingMeta = false
                 }
             }
         }
@@ -136,5 +293,47 @@ struct InfoTabView: View {
                 .foregroundStyle(JM.textMain)
                 .lineLimit(1)
         }
+    }
+}
+
+// MARK: - Simple flow layout for keyword tags
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 4
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = arrange(proposal: proposal, subviews: subviews)
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = arrange(proposal: proposal, subviews: subviews)
+        for (index, subview) in subviews.enumerated() {
+            guard index < result.positions.count else { break }
+            let pos = result.positions[index]
+            subview.place(at: CGPoint(x: bounds.minX + pos.x, y: bounds.minY + pos.y), proposal: .unspecified)
+        }
+    }
+
+    private func arrange(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
+        let maxWidth = proposal.width ?? .infinity
+        var positions: [CGPoint] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth && x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            positions.append(CGPoint(x: x, y: y))
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + spacing
+        }
+
+        return (CGSize(width: maxWidth, height: y + rowHeight), positions)
     }
 }

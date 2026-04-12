@@ -24,6 +24,7 @@ struct FullImageToolbarView: ToolbarContent {
                 Text(asset.filename)
                     .font(JM.Font.body(.medium))
                     .foregroundStyle(JM.textMain)
+                    .padding(.horizontal, 16)
             }
         }
     }
