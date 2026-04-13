@@ -34,9 +34,11 @@ DerivedData/
 # Swift Package Manager
 .swiftpm/
 .build/
-Packages/
 Package.pins
 Package.resolved
+Packages/*/.build/
+Packages/*/Package.resolved
+# Note: Packages/ source code is tracked — CoralCore local package lives there
 
 # CocoaPods
 Pods/
