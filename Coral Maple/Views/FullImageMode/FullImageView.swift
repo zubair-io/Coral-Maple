@@ -67,6 +67,16 @@ struct FullImageView: View {
             viewModel.navigate(direction: 1)
             return .handled
         }
+        // Culling hotkeys
+        .onKeyPress(characters: .init(charactersIn: "pxu012345")) { press in
+            guard let id = viewModel.selectedAsset?.id else { return .ignored }
+            let ch = press.characters
+            if ch == "p" { Task { await viewModel.toggleFlag(.pick, for: id) }; return .handled }
+            if ch == "x" { Task { await viewModel.toggleFlag(.reject, for: id) }; return .handled }
+            if ch == "u" { Task { await viewModel.toggleFlag(.unflagged, for: id) }; return .handled }
+            if let n = Int(ch), (0...5).contains(n) { Task { await viewModel.setRating(n, for: id) }; return .handled }
+            return .ignored
+        }
         #endif
         .toolbar {
             FullImageToolbarView()
