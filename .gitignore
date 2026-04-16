@@ -35,10 +35,11 @@ DerivedData/
 .swiftpm/
 .build/
 Package.pins
-Package.resolved
 Packages/*/.build/
 Packages/*/Package.resolved
 # Note: Packages/ source code is tracked — CoralCore local package lives there
+# The workspace-level Package.resolved is tracked for reproducible builds.
+# Only the local package's resolved file is ignored (it's a library, not an app).
 
 # CocoaPods
 Pods/

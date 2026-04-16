@@ -96,7 +96,7 @@ Every `await` boundary in `loadAssets` and `loadPage` checks the generation befo
 Sandboxed access to user-selected folders is managed through security-scoped bookmarks:
 
 1. **User picks a folder** — `fileImporter` returns a security-scoped URL
-2. **`FilesystemSource.addFolder(url:)`** — starts scope, saves bookmark, stores URL in `scopedURLs`
+2. `**FilesystemSource.addFolder(url:)**` — starts scope, saves bookmark, stores URL in `scopedURLs`
 3. **App launch** — `BookmarkStore.restore()` resolves bookmarks, `rootContainers()` populates `scopedURLs`, calls `markReady()`
 4. **Last-folder restore** — `await filesystemSource.ensureReady()` blocks until `rootContainers()` completes, preventing EPERM on cold start
 5. **Directory listing** — `findScopedParent(for: url)` walks `scopedURLs` to find the bookmarked ancestor, then `startAccessingSecurityScopedResource()` on that URL
