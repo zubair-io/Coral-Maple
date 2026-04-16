@@ -2,6 +2,9 @@ import CoreGraphics
 import CoreImage
 import Foundation
 import Observation
+import os
+
+private let logger = Logger(subsystem: "app.justmaple.Coral-Maple", category: "EditSession")
 
 /// Observable state that bridges adjustment sliders, the image pipeline,
 /// and XMP sidecar persistence.
@@ -21,8 +24,7 @@ public final class EditSession {
     public var adjustments: AdjustmentModel = AdjustmentModel() {
         didSet {
             if oldValue != adjustments {
-                NSLog("[CoralMaple] EditSession: adjustments changed (exposure=%.2f contrast=%.0f)",
-                      adjustments.exposure, adjustments.contrast)
+                logger.debug("adjustments changed (exposure=\(self.adjustments.exposure, format: .fixed(precision: 2)) contrast=\(self.adjustments.contrast, format: .fixed(precision: 0)))")
                 scheduleRender()
                 scheduleSave()
             }
@@ -46,6 +48,10 @@ public final class EditSession {
 
     /// Whether the WB eyedropper is active — next tap on image samples WB.
     public var isEyedropperActive = false
+
+    /// Last sidecar write error — observed by the UI to show alerts.
+    /// Cleared on the next successful save or on `beginEditing`.
+    public var lastSaveError: String?
 
     /// Sample a pixel from the preview and compute WB to make it neutral.
     /// `point` is in unit coordinates (0..1) relative to the preview image.
@@ -73,7 +79,7 @@ public final class EditSession {
         let r = Double(bitmap[0]) / 255.0
         let g = Double(bitmap[1]) / 255.0
         let b = Double(bitmap[2]) / 255.0
-        NSLog("[CoralMaple] Eyedropper sampled RGB: %.3f, %.3f, %.3f", r, g, b)
+        // Removed verbose NSLog — use logger.debug for specific diagnostics
 
         // Compute WB adjustment to neutralize this pixel.
         // If R/G ratio > 1, the image is too warm → shift cooler (lower temp).
@@ -94,8 +100,7 @@ public final class EditSession {
         let tintShift = (g - rbAvg) * 50.0
         let newTint = max(-100, min(100, currentTint - tintShift))
 
-        NSLog("[CoralMaple] Eyedropper: WB %.0f→%.0f, tint %.1f→%.1f",
-              currentTemp, newTemp, currentTint, newTint)
+        logger.debug("eyedropper WB: \(currentTemp, format: .fixed(precision: 0))→\(newTemp, format: .fixed(precision: 0))")
 
         adjustments.temperature = newTemp
         adjustments.tint = newTint
@@ -171,7 +176,7 @@ public final class EditSession {
 
     /// Begin editing an asset. Decodes the image and loads existing adjustments.
     public func beginEditing(asset: ImageAsset, source: any LibrarySource) async {
-        NSLog("[CoralMaple] EditSession.beginEditing: %@ fileURL=%@", asset.filename, asset.fileURL?.path ?? "nil")
+        // Removed verbose NSLog — use logger.debug for specific diagnostics
         self.asset = asset
         self.activeSource = source
         self.isEditing = true
@@ -181,7 +186,9 @@ public final class EditSession {
 
         // Extract as-shot WB from EXIF
         await loadAsShotWB(asset: asset, source: source)
-        NSLog("[CoralMaple] EditSession: as-shot WB temp=%.0f tint=%.1f", asShotTemperature, asShotTint)
+        // Removed verbose NSLog — use logger.debug for specific diagnostics
+
+        lastSaveError = nil
 
         // Load existing adjustments from sidecar
         do {
@@ -189,23 +196,21 @@ public final class EditSession {
             if asset.id.hasPrefix("smb://"), let smb = source as? SMBSource {
                 let smbPath = asset.id // log the path
                 let stem = (smbPath as NSString).deletingPathExtension
-                NSLog("[CoralMaple] EditSession: reading SMB sidecar at %@.xmp", stem)
+                // Removed verbose NSLog — use logger.debug for specific diagnostics
                 model = try await smb.readSidecar(for: asset)
             } else {
                 let sidecarURL = await sidecarStore.sidecarURL(for: asset)
-                NSLog("[CoralMaple] EditSession: reading sidecar at %@", sidecarURL.path)
+                // Removed verbose NSLog — use logger.debug for specific diagnostics
                 model = try await sidecarStore.read(for: asset)
             }
             if let model {
-                NSLog("[CoralMaple] EditSession: loaded sidecar — temp=%.0f tint=%.1f exposure=%.2f",
-                      model.temperature, model.tint, model.exposure)
                 adjustments = model
             } else {
-                NSLog("[CoralMaple] EditSession: no sidecar found, using defaults")
+                // Removed verbose NSLog — use logger.debug for specific diagnostics
                 adjustments = AdjustmentModel()
             }
         } catch {
-            NSLog("[CoralMaple] EditSession: sidecar read error: %@", "\(error)")
+            logger.error("sidecar read error: \(error)")
             adjustments = AdjustmentModel()
         }
 
@@ -214,7 +219,7 @@ public final class EditSession {
         // ~0ms. A background task eagerly decodes the RAW so the first slider
         // drag is fast too, but it doesn't block this function.
         if let cached = previewCache.read(assetID: asset.id, adjustments: adjustments) {
-            NSLog("[CoralMaple] EditSession: disk preview cache hit for %@", asset.filename)
+            // Removed verbose NSLog — use logger.debug for specific diagnostics
             previewImage = cached
             if nativeImageSize == .zero {
                 nativeImageSize = CGSize(width: cached.width, height: cached.height)
@@ -261,8 +266,6 @@ public final class EditSession {
             if let extent = decoded?.extent {
                 nativeImageSize = CGSize(width: extent.width, height: extent.height)
             }
-            NSLog("[CoralMaple] EditSession: background decode complete, extent=%.0fx%.0f",
-                  nativeImageSize.width, nativeImageSize.height)
         }
     }
 
@@ -276,7 +279,7 @@ public final class EditSession {
            let wb = decoder.asShotWB(url: fileURL) {
             asShotTemperature = wb.temperature
             asShotTint = wb.tint
-            NSLog("[CoralMaple] EditSession: as-shot WB from RAW (local) temp=%.0f tint=%.1f", wb.temperature, wb.tint)
+            // Removed verbose NSLog — use logger.debug for specific diagnostics
             return
         }
         // For SMB/PhotoKit, we need the file data
@@ -285,7 +288,7 @@ public final class EditSession {
                 if let wb = decoder.asShotWB(data: data, filename: asset.filename) {
                     asShotTemperature = wb.temperature
                     asShotTint = wb.tint
-                    NSLog("[CoralMaple] EditSession: as-shot WB from cached RAW temp=%.0f tint=%.1f", wb.temperature, wb.tint)
+                    // Removed verbose NSLog — use logger.debug for specific diagnostics
                     return
                 }
             }
@@ -298,12 +301,9 @@ public final class EditSession {
                 meta = ImageMetadata.from(url: fileURL)
             } else {
                 let data = try await source.metadataData(for: asset)
-                NSLog("[CoralMaple] EditSession EXIF: got %d bytes metadata", data.count)
+                // Removed verbose NSLog — use logger.debug for specific diagnostics
                 meta = ImageMetadata.from(data: data)
             }
-            NSLog("[CoralMaple] EditSession EXIF: camera=%@ lens=%@ iso=%@ aperture=%@ shutter=%@",
-                  meta.cameraModel ?? "nil", meta.lens ?? "nil",
-                  meta.iso ?? "nil", meta.aperture ?? "nil", meta.shutterSpeed ?? "nil")
             if let temp = meta.asShotTemperature {
                 asShotTemperature = temp
             }
@@ -342,7 +342,10 @@ public final class EditSession {
                         try await sidecarStore.write(adjustments, for: asset)
                     }
                 }
-            } catch {}
+            } catch {
+                logger.error("endEditing sidecar flush FAILED: \(error)")
+                lastSaveError = "Failed to save edits: \(error.localizedDescription)"
+            }
 
             // Regenerate thumbnail synchronously so the callback fires before
             // we nil out `asset` / `decodedImage`.
@@ -369,9 +372,13 @@ public final class EditSession {
         adjustments.culling = culling
     }
 
+    /// In-memory adjustment clipboard. Transient — not persisted across sessions.
+    public var copiedAdjustments: AdjustmentModel?
+
     /// Copy current adjustments (for paste to another image).
     public func copyAdjustments() -> AdjustmentModel {
-        adjustments
+        copiedAdjustments = adjustments
+        return adjustments
     }
 
     /// Paste adjustments from another image.
@@ -476,7 +483,7 @@ public final class EditSession {
 
     private func decodeAndRender(targetSize: CGSize) async {
         guard let asset, let source = activeSource else {
-            NSLog("[CoralMaple] EditSession.decodeAndRender: no asset or source")
+            logger.warning("decodeAndRender: no asset or source")
             return
         }
         isRendering = true
@@ -484,13 +491,13 @@ public final class EditSession {
         do {
             // Only decode once per asset — WB/exposure are post-decode filters now.
             if !hasDecoded {
-                NSLog("[CoralMaple] EditSession: decoding image (fileURL=%@)", asset.fileURL?.path ?? "nil")
+                // Removed verbose NSLog — use logger.debug for specific diagnostics
 
                 // Download if needed (SMB/PhotoKit) — async, but on main actor is OK
                 if asset.fileURL == nil, cachedFileData == nil {
-                    NSLog("[CoralMaple] EditSession: downloading full file data...")
+                    // Removed verbose NSLog — use logger.debug for specific diagnostics
                     cachedFileData = try await source.fullImageData(for: asset)
-                    NSLog("[CoralMaple] EditSession: got %d bytes (cached)", cachedFileData?.count ?? 0)
+                    // Removed verbose NSLog — use logger.debug for specific diagnostics
                 }
 
                 // Decode off the main actor — RAW demosaicing is CPU-heavy and
@@ -522,12 +529,11 @@ public final class EditSession {
                 if let extent = decodedImage?.extent {
                     nativeImageSize = CGSize(width: extent.width, height: extent.height)
                 }
-                NSLog("[CoralMaple] EditSession: decode complete, extent=%.0fx%.0f",
-                      nativeImageSize.width, nativeImageSize.height)
+                logger.debug("decode complete, extent=\(self.nativeImageSize.width)x\(self.nativeImageSize.height)")
             }
 
             guard let decoded = decodedImage, !Task.isCancelled else {
-                NSLog("[CoralMaple] EditSession: no decoded image or cancelled")
+                logger.debug("no decoded image or cancelled")
                 isRendering = false
                 return
             }
@@ -535,8 +541,7 @@ public final class EditSession {
             // Apply adjustment chain
             let processed = pipeline.process(input: decoded, adjustments: adjustments)
 
-            NSLog("[CoralMaple] EditSession: rendering preview at %.0fx%.0f",
-                  targetSize.width, targetSize.height)
+            logger.debug("rendering preview at \(targetSize.width)x\(targetSize.height)")
             let preview = pipeline.renderPreview(processed, targetSize: targetSize)
 
             guard !Task.isCancelled else {
@@ -545,17 +550,16 @@ public final class EditSession {
             }
 
             if let preview {
-                NSLog("[CoralMaple] EditSession: preview rendered %dx%d",
-                      preview.width, preview.height)
+                logger.debug("preview rendered \(preview.width)x\(preview.height)")
                 // Only replace previewImage on success — a nil result (huge
                 // zoom target, OOM, etc.) shouldn't wipe the last good frame
                 // out from under the UI.
                 previewImage = preview
             } else {
-                NSLog("[CoralMaple] EditSession: preview render returned nil — keeping last frame")
+                logger.warning("preview render returned nil — keeping last frame")
             }
         } catch {
-            NSLog("[CoralMaple] EditSession render error: %@", "\(error)")
+            logger.error("render error: \(error)")
         }
 
         isRendering = false
@@ -574,27 +578,29 @@ public final class EditSession {
             do {
                 if asset.id.hasPrefix("smb://"), let smb = activeSource as? SMBSource {
                     let path = (asset.id as NSString).deletingPathExtension
-                    NSLog("[CoralMaple] EditSession: saving SMB sidecar to %@.xmp", path)
+                    // Removed verbose NSLog — use logger.debug for specific diagnostics
                     try await smb.writeSidecar(adjustments, for: asset)
-                    NSLog("[CoralMaple] EditSession: SMB sidecar saved OK")
+                    // Removed verbose NSLog — use logger.debug for specific diagnostics
                     saveSucceeded = true
                 } else if let fileURL = asset.fileURL {
                     let sidecarURL = fileURL.deletingPathExtension().appendingPathExtension("xmp")
-                    NSLog("[CoralMaple] EditSession: saving local sidecar to %@", sidecarURL.path)
+                    // Removed verbose NSLog — use logger.debug for specific diagnostics
                     let parent = fileURL.deletingLastPathComponent()
                     let accessing = parent.startAccessingSecurityScopedResource()
                     defer { if accessing { parent.stopAccessingSecurityScopedResource() } }
                     try await sidecarStore.write(adjustments, for: asset)
-                    NSLog("[CoralMaple] EditSession: local sidecar saved OK")
+                    // Removed verbose NSLog — use logger.debug for specific diagnostics
                     saveSucceeded = true
                 } else {
                     let url = await sidecarStore.sidecarURL(for: asset)
-                    NSLog("[CoralMaple] EditSession: saving PhotoKit sidecar to %@", url.path)
+                    // Removed verbose NSLog — use logger.debug for specific diagnostics
                     try await sidecarStore.write(adjustments, for: asset)
                     saveSucceeded = true
                 }
+                lastSaveError = nil
             } catch {
-                NSLog("[CoralMaple] EditSession save error: %@", "\(error)")
+                logger.error("save error: \(error)")
+                lastSaveError = "Failed to save edits: \(error.localizedDescription)"
             }
 
             guard !Task.isCancelled, saveSucceeded else { return }
@@ -620,8 +626,7 @@ public final class EditSession {
             targetSize: CGSize(width: thumbMaxDim, height: thumbMaxDim)
         ) else { return }
 
-        NSLog("[CoralMaple] EditSession: regenerated thumbnail %dx%d for %@",
-              thumb.width, thumb.height, asset.filename)
+        logger.debug("regenerated thumbnail \(thumb.width)x\(thumb.height) for \(asset.filename)")
 
         // For local files, persist to .coral/thumbs/ so the cache survives restarts.
         if let fileURL = asset.fileURL {

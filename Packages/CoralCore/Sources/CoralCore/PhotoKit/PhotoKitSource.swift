@@ -180,9 +180,25 @@ public final class PhotoKitSource: LibrarySource, @unchecked Sendable {
             options.isNetworkAccessAllowed = true
 
             // PHImageManager can call the handler more than once (degraded then full).
-            // A continuation must resume exactly once — guard with a flag.
-            let resumed = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
-            resumed.initialize(to: false)
+            // A continuation must resume exactly once — guard with a Sendable class.
+            final class ResumeGuard: @unchecked Sendable {
+                private var _resumed = false
+                private let lock = NSLock()
+                var resumed: Bool {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    return _resumed
+                }
+                /// Returns true if this is the first call (i.e. we should resume).
+                func tryResume() -> Bool {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    if _resumed { return false }
+                    _resumed = true
+                    return true
+                }
+            }
+            let guard_ = ResumeGuard()
 
             imageManager.requestImage(
                 for: phAsset,
@@ -190,15 +206,27 @@ public final class PhotoKitSource: LibrarySource, @unchecked Sendable {
                 contentMode: .aspectFit,
                 options: options
             ) { image, info in
-                guard !resumed.pointee else { return }
+                // If cancelled or errored, resume with error (this is the final callback).
+                if let error = info?[PHImageErrorKey] as? Error {
+                    if guard_.tryResume() {
+                        continuation.resume(throwing: error)
+                    }
+                    return
+                }
+                if let cancelled = info?[PHImageCancelledKey] as? Bool, cancelled {
+                    if guard_.tryResume() {
+                        continuation.resume(throwing: PhotoKitError.decodeFailed(phAsset.localIdentifier))
+                    }
+                    return
+                }
 
                 // Skip degraded callbacks — wait for the final result
                 if let isDegraded = info?[PHImageResultIsDegradedKey] as? Bool, isDegraded {
                     return
                 }
 
-                resumed.pointee = true
-                defer { resumed.deallocate() }
+                // Final, non-degraded result
+                guard guard_.tryResume() else { return }
 
                 #if canImport(UIKit)
                 if let cgImage = image?.cgImage {
@@ -237,20 +265,28 @@ public final class PhotoKitSource: LibrarySource, @unchecked Sendable {
             }
 
             var data = Data()
+            var resumed = false
             let options = PHAssetResourceRequestOptions()
             options.isNetworkAccessAllowed = true
 
-            PHAssetResourceManager.default().requestData(for: resource, options: options) { chunk in
+            let requestID = PHAssetResourceManager.default().requestData(for: resource, options: options) { chunk in
                 data.append(chunk)
-                // Only need the first ~256KB for EXIF
-                if data.count > 256 * 1024 {
-                    // Can't cancel easily, but we have enough
-                }
             } completionHandler: { error in
+                guard !resumed else { return }
+                resumed = true
                 if let error {
                     continuation.resume(throwing: error)
                 } else {
                     continuation.resume(returning: data)
+                }
+            }
+
+            // Cancel once we have enough bytes for EXIF/IPTC extraction.
+            // The completion handler fires after cancellation with the data
+            // accumulated so far — no error is produced.
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.05) {
+                if data.count >= 256 * 1024, !resumed {
+                    PHAssetResourceManager.default().cancelDataRequest(requestID)
                 }
             }
         }

@@ -153,16 +153,14 @@ struct ColorTabView: View {
             Button("Revert") { editSession.revert() }
             Spacer()
             Button("Copy") {
-                if let data = try? JSONEncoder().encode(editSession.copyAdjustments()) {
-                    UserDefaults.standard.set(data, forKey: "com.justmaple.coral-maple.copiedAdjustments")
-                }
+                _ = editSession.copyAdjustments()
             }
             Button("Paste") {
-                if let data = UserDefaults.standard.data(forKey: "com.justmaple.coral-maple.copiedAdjustments"),
-                   let model = try? JSONDecoder().decode(AdjustmentModel.self, from: data) {
-                    editSession.pasteAdjustments(model)
+                if let copied = editSession.copiedAdjustments {
+                    editSession.pasteAdjustments(copied)
                 }
             }
+            .disabled(editSession.copiedAdjustments == nil)
         }
         .font(JM.Font.caption(.medium))
         .foregroundStyle(JM.textMuted)

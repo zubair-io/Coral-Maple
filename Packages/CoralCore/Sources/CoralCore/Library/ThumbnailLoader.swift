@@ -131,53 +131,96 @@ public actor ThumbnailLoader {
 
 // MARK: - LRU Cache
 
-/// Simple generic LRU cache backed by a dictionary with timestamp-based eviction.
-/// All operations are O(1) amortized (eviction scans once per insert over capacity).
+/// Generic LRU cache with O(1) get, set, and eviction.
+/// Backed by a doubly-linked list (recency order) and a hash map (key lookup).
 struct LRUCache<Key: Hashable, Value>: Sendable where Key: Sendable, Value: Sendable {
 
-    private var storage: [Key: (value: Value, timestamp: UInt64)] = [:]
-    private var nextTimestamp: UInt64 = 0
+    private final class Node: @unchecked Sendable {
+        let key: Key
+        var value: Value
+        var prev: Node?
+        var next: Node?
+        init(key: Key, value: Value) { self.key = key; self.value = value }
+    }
+
+    private var map: [Key: Node] = [:]
+    /// Most-recently-used sentinel
+    private var head: Node?
+    /// Least-recently-used sentinel
+    private var tail: Node?
     private(set) var capacity: Int
 
     init(capacity: Int) {
         self.capacity = max(capacity, 1)
     }
 
+    var count: Int { map.count }
+
     mutating func get(_ key: Key) -> Value? {
-        guard var entry = storage[key] else { return nil }
-        nextTimestamp += 1
-        entry.timestamp = nextTimestamp
-        storage[key] = entry
-        return entry.value
+        guard let node = map[key] else { return nil }
+        moveToHead(node)
+        return node.value
     }
 
     mutating func set(_ key: Key, value: Value) {
-        nextTimestamp += 1
-        storage[key] = (value: value, timestamp: nextTimestamp)
-        if storage.count > capacity {
-            // Evict oldest
-            if let oldest = storage.min(by: { $0.value.timestamp < $1.value.timestamp })?.key {
-                storage.removeValue(forKey: oldest)
+        if let node = map[key] {
+            node.value = value
+            moveToHead(node)
+        } else {
+            let node = Node(key: key, value: value)
+            map[key] = node
+            addToHead(node)
+            if map.count > capacity {
+                evictOldest()
             }
         }
     }
 
-    var count: Int { storage.count }
-
     mutating func evictOldest() {
-        if let oldest = storage.min(by: { $0.value.timestamp < $1.value.timestamp })?.key {
-            storage.removeValue(forKey: oldest)
-        }
+        guard let t = tail else { return }
+        removeNode(t)
+        map.removeValue(forKey: t.key)
     }
 
     mutating func removeAll() {
-        storage.removeAll()
-        nextTimestamp = 0
+        map.removeAll()
+        head = nil
+        tail = nil
     }
 
     mutating func removeAll(where predicate: (Key) -> Bool) {
-        for key in storage.keys where predicate(key) {
-            storage.removeValue(forKey: key)
+        let keysToRemove = map.keys.filter(predicate)
+        for key in keysToRemove {
+            if let node = map.removeValue(forKey: key) {
+                removeNode(node)
+            }
         }
+    }
+
+    // MARK: - Linked list operations
+
+    private mutating func addToHead(_ node: Node) {
+        node.prev = nil
+        node.next = head
+        head?.prev = node
+        head = node
+        if tail == nil { tail = node }
+    }
+
+    private mutating func removeNode(_ node: Node) {
+        let prev = node.prev
+        let next = node.next
+        prev?.next = next
+        next?.prev = prev
+        if head === node { head = next }
+        if tail === node { tail = prev }
+        node.prev = nil
+        node.next = nil
+    }
+
+    private mutating func moveToHead(_ node: Node) {
+        guard head !== node else { return }
+        removeNode(node)
+        addToHead(node)
     }
 }

@@ -90,26 +90,30 @@ public struct AdjustmentModel: Sendable, Equatable, Codable, Hashable {
         passthroughFields: [String: String] = [:]
     ) {
         self.culling = culling
-        self.exposure = exposure
-        self.contrast = contrast
-        self.highlights = highlights
-        self.shadows = shadows
-        self.whites = whites
-        self.blacks = blacks
-        self.temperature = temperature
-        self.tint = tint
-        self.vibrance = vibrance
-        self.saturation = saturation
-        self.clarity = clarity
-        self.texture = texture
-        self.dehaze = dehaze
-        self.sharpenAmount = sharpenAmount
-        self.sharpenRadius = sharpenRadius
-        self.sharpenDetail = sharpenDetail
-        self.sharpenMasking = sharpenMasking
-        self.nrLuminance = nrLuminance
-        self.nrColor = nrColor
+        self.exposure = Self.clamp(exposure, -4...4)
+        self.contrast = Self.clamp(contrast, -100...100)
+        self.highlights = Self.clamp(highlights, -100...100)
+        self.shadows = Self.clamp(shadows, -100...100)
+        self.whites = Self.clamp(whites, -100...100)
+        self.blacks = Self.clamp(blacks, -100...100)
+        self.temperature = Self.clamp(temperature, 2000...12000)
+        self.tint = Self.clamp(tint, -100...100)
+        self.vibrance = Self.clamp(vibrance, -100...100)
+        self.saturation = Self.clamp(saturation, -100...100)
+        self.clarity = Self.clamp(clarity, -100...100)
+        self.texture = Self.clamp(texture, -100...100)
+        self.dehaze = Self.clamp(dehaze, -100...100)
+        self.sharpenAmount = Self.clamp(sharpenAmount, 0...150)
+        self.sharpenRadius = Self.clamp(sharpenRadius, 0.5...3.0)
+        self.sharpenDetail = Self.clamp(sharpenDetail, 0...100)
+        self.sharpenMasking = Self.clamp(sharpenMasking, 0...100)
+        self.nrLuminance = Self.clamp(nrLuminance, 0...100)
+        self.nrColor = Self.clamp(nrColor, 0...100)
         self.passthroughFields = passthroughFields
+    }
+
+    private static func clamp(_ value: Double, _ range: ClosedRange<Double>) -> Double {
+        min(max(value, range.lowerBound), range.upperBound)
     }
 
     /// True when every adjustment is at its default (identity) value.

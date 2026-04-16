@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 public enum SourceType: String, Sendable, Codable, Hashable {
     case photoKit
     case filesystem
+    case smb
 }
 
 // MARK: - ImageAsset

@@ -20,8 +20,10 @@ public struct XMPSerializer: Sendable {
         lines.append(#"      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/""#)
         lines.append(#"      xmlns:papp="http://ns.justmaple.com/coral-maple/1.0/""#)
 
-        // XMP rating
-        lines.append(#"      xmp:Rating="\#(model.culling.rating)""#)
+        // XMP rating — only emit when > 0 for Adobe interop (absence = unrated)
+        if model.culling.rating > 0 {
+            lines.append(#"      xmp:Rating="\#(model.culling.rating)""#)
+        }
 
         // CRS fields — only emit non-default values to keep sidecars lean
         func emit(_ key: String, _ value: Double, default defaultVal: Double) {
@@ -77,7 +79,7 @@ public struct XMPSerializer: Sendable {
 
     /// Format a double for XMP: strip trailing zeros, keep at most 2 decimal places.
     static func format(_ value: Double) -> String {
-        if value == value.rounded(.towardZero) && value.truncatingRemainder(dividingBy: 1) == 0 {
+        if value.truncatingRemainder(dividingBy: 1) == 0 {
             return String(Int(value))
         }
         let s = String(format: "%.2f", value)

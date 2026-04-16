@@ -17,10 +17,6 @@ struct InfoTabView: View {
                 cullingSection(asset)
                 Divider().background(JM.border)
                 cameraSection
-                Divider().background(JM.border)
-                locationSection
-                Divider().background(JM.border)
-                iptcSection
             } else {
                 noSelectionView
             }

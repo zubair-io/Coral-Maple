@@ -38,7 +38,7 @@ struct AppShell: View {
         .environment(editSession)
         .preferredColorScheme(.dark)
         .onChange(of: viewModel.appMode) { _, newMode in
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(.easeOut(duration: 0.18)) {
                 switch newMode {
                 case .fullImage(let assetID):
                     columnVisibility = .doubleColumn
@@ -60,6 +60,14 @@ struct AppShell: View {
                 lastContainerID = newID
                 lastContainerName = name
             }
+        }
+        .alert("Save Error", isPresented: Binding(
+            get: { editSession.lastSaveError != nil },
+            set: { if !$0 { editSession.lastSaveError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(editSession.lastSaveError ?? "")
         }
         .task {
             // Wire edit-session → view-model so the grid thumbnail refreshes

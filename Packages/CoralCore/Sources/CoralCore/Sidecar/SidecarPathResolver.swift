@@ -5,8 +5,11 @@ import Foundation
 /// - **Filesystem assets:** sidecar is a sibling file with the same stem and `.xmp` extension
 ///   (e.g. `IMG_1234.CR3` → `IMG_1234.xmp`).
 /// - **PhotoKit assets:** sidecar is stored at
-///   `~/Pictures/Coral Maple/sidecars/<UUID>.xmp` because PhotoKit does not expose
-///   a writable path inside the library package.
+///   `~/Library/Application Support/CoralMaple/sidecars/<UUID>.xmp` because PhotoKit
+///   does not expose a writable path inside the library package.
+/// - **SMB assets:** sidecars are written directly to the share by `SMBSource.writeSidecar()`.
+///   If an SMB asset reaches this resolver (e.g. via culling), the `.smb` case falls back to
+///   `~/Library/Application Support/CoralMaple/sidecars/` as a local cache.
 public struct SidecarPathResolver: Sendable {
 
     /// Root directory for PhotoKit sidecars. Defaults to `~/Pictures/Coral Maple/sidecars`.
@@ -29,7 +32,7 @@ public struct SidecarPathResolver: Sendable {
         switch asset.sourceType {
         case .filesystem:
             guard let fileURL = asset.fileURL else {
-                // SMB or other non-file asset — sanitize ID into a valid filename
+                // Non-file asset — sanitize ID into a valid filename
                 let sanitized = asset.id
                     .replacingOccurrences(of: "://", with: "_")
                     .replacingOccurrences(of: "/", with: "_")
@@ -37,6 +40,15 @@ public struct SidecarPathResolver: Sendable {
                 return photoKitSidecarRoot.appendingPathComponent("\(sanitized).xmp")
             }
             return fileURL.deletingPathExtension().appendingPathExtension("xmp")
+
+        case .smb:
+            // SMB sidecars are written directly to the share by SMBSource.writeSidecar().
+            // This local fallback is used by setCulling when no SMBSource is available.
+            let sanitized = asset.id
+                .replacingOccurrences(of: "://", with: "_")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: ":", with: "_")
+            return photoKitSidecarRoot.appendingPathComponent("\(sanitized).xmp")
 
         case .photoKit:
             return photoKitSidecarRoot.appendingPathComponent("\(asset.id).xmp")

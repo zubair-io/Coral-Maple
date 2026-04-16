@@ -25,14 +25,8 @@ struct FolderPicker: UIViewControllerRepresentable {
 
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             guard let url = urls.first else { return }
-
-            guard url.startAccessingSecurityScopedResource() else {
-                NSLog("[CoralMaple] FolderPicker: startAccessingSecurityScopedResource FAILED for %@", url.path)
-                onPick(url) // pass through anyway, addFolder will handle the error
-                return
-            }
-
-            NSLog("[CoralMaple] FolderPicker: picked url=%@ (scope active)", url.path)
+            // Don't start security scope here — FilesystemSource.addFolder()
+            // handles scope acquisition and persists the bookmark.
             onPick(url)
         }
     }

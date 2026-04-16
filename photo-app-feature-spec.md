@@ -261,7 +261,7 @@ XMP with two namespaces: standard `crs:` for common adjustments, custom `papp:` 
     <rdf:Description
       xmlns:xmp="http://ns.adobe.com/xap/1.0/"
       xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
-      xmlns:papp="http://ns.yourapp.com/1.0/"
+      xmlns:papp="http://ns.justmaple.com/coral-maple/1.0/"
 
       xmp:Rating="5"
       crs:Exposure2012="+0.30"

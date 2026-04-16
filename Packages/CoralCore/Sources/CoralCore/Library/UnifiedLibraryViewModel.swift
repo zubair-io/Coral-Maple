@@ -280,13 +280,20 @@ public final class UnifiedLibraryViewModel {
 
         cullingCache[assetID] = state
 
-        // Write to sidecar
+        // Write to sidecar — route SMB assets through SMBSource so the
+        // sidecar lands on the share, not in local App Support.
         do {
-            var model = try await sidecarStore.read(for: asset) ?? AdjustmentModel()
-            model.culling = state
-            try await sidecarStore.write(model, for: asset)
+            if asset.sourceType == .smb, let smb = activeSource as? SMBSource {
+                var model = (try? await smb.readSidecar(for: asset)) ?? AdjustmentModel()
+                model.culling = state
+                try await smb.writeSidecar(model, for: asset)
+            } else {
+                var model = try await sidecarStore.read(for: asset) ?? AdjustmentModel()
+                model.culling = state
+                try await sidecarStore.write(model, for: asset)
+            }
         } catch {
-            // Sidecar write failed — cache still holds the value for this session
+            NSLog("[CoralMaple] setCulling sidecar write failed: %@", "\(error)")
         }
 
         if selectedAsset?.id == assetID {

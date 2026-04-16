@@ -1,5 +1,7 @@
+import CoreGraphics
 import CoreImage
 import Foundation
+import ImageIO
 
 /// Renders a processed image to disk at full resolution.
 public struct ExportEngine: Sendable {
@@ -7,14 +9,21 @@ public struct ExportEngine: Sendable {
     public init() {}
 
     /// Export an image with adjustments applied.
+    /// `scopedURL` is the security-scoped bookmark URL that grants sandbox access
+    /// to the image's parent folder. Pass nil for PhotoKit/SMB sources.
     /// Returns the URL of the exported file.
     public func export(
         asset: ImageAsset,
         adjustments: AdjustmentModel,
         config: ExportConfiguration,
         source: any LibrarySource,
-        pipeline: ImageEditPipeline
+        pipeline: ImageEditPipeline,
+        scopedURL: URL? = nil
     ) async throws -> URL {
+        // Start security scope if provided (filesystem sources in sandbox)
+        let accessing = scopedURL?.startAccessingSecurityScopedResource() ?? false
+        defer { if accessing { scopedURL?.stopAccessingSecurityScopedResource() } }
+
         // 1. Decode the full image (always neutral — WB/exposure are post-decode filters)
         let decoded: CIImage
         if let fileURL = asset.fileURL {
@@ -55,9 +64,44 @@ public struct ExportEngine: Sendable {
         case .png: ext = "png"
         }
 
-        let outputURL = outputDir.appendingPathComponent("\(stem)_export.\(ext)")
-        try data.write(to: outputURL)
+        var outputURL = outputDir.appendingPathComponent("\(stem)_export.\(ext)")
 
+        // 6. Strip metadata if requested
+        if !config.includeMetadata {
+            outputURL = try stripMetadata(from: data, to: outputURL)
+        } else {
+            try data.write(to: outputURL)
+        }
+
+        return outputURL
+    }
+
+    /// Write image data to disk with EXIF/IPTC/GPS metadata stripped.
+    private func stripMetadata(from data: Data, to outputURL: URL) throws -> URL {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let type = CGImageSourceGetType(source),
+              let dest = CGImageDestinationCreateWithURL(outputURL as CFURL, type, 1, nil) else {
+            try data.write(to: outputURL)
+            return outputURL
+        }
+
+        // Copy the image but remove metadata dictionaries
+        let removeKeys: [CFString] = [
+            kCGImagePropertyExifDictionary,
+            kCGImagePropertyIPTCDictionary,
+            kCGImagePropertyGPSDictionary,
+            kCGImagePropertyTIFFDictionary,
+        ]
+        var cleanProps: [CFString: Any] = [:]
+        for key in removeKeys {
+            cleanProps[key] = kCFNull
+        }
+
+        CGImageDestinationAddImageFromSource(dest, source, 0, cleanProps as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else {
+            try data.write(to: outputURL)
+            return outputURL
+        }
         return outputURL
     }
 

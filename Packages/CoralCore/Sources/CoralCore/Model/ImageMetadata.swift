@@ -124,7 +124,7 @@ public struct ImageMetadata: Sendable {
         if let iptc = props[kCGImagePropertyIPTCDictionary] as? [CFString: Any] {
             meta.caption = iptc[kCGImagePropertyIPTCCaptionAbstract] as? String
             meta.copyright = iptc[kCGImagePropertyIPTCCopyrightNotice] as? String
-            meta.creator = (iptc[kCGImagePropertyIPTCCreatorContactInfo] as? [CFString: Any])?[kCGImagePropertyIPTCContactInfoEmails] as? String
+            meta.creator = iptc[kCGImagePropertyIPTCByline] as? String
             meta.keywords = iptc[kCGImagePropertyIPTCKeywords] as? [String]
         }
 

@@ -5,12 +5,14 @@ import CoralCore
 enum DetailTab: String, CaseIterable {
     case info   = "Info"
     case color  = "Color"
+    case meta   = "Meta"
     case scopes = "Scopes"
 
     var icon: String {
         switch self {
         case .info:   return "info.circle"
         case .color:  return "slider.horizontal.3"
+        case .meta:   return "doc.text"
         case .scopes: return "waveform.path.ecg"
         }
     }
@@ -29,6 +31,8 @@ struct DetailPanelView: View {
                     InfoTabView()
                 case .color:
                     ColorTabView()
+                case .meta:
+                    MetaTabView()
                 case .scopes:
                     ScopesTabView()
                 }

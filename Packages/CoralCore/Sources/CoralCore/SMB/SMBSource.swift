@@ -278,7 +278,7 @@ public final class SMBSource: LibrarySource, @unchecked Sendable {
 
                 results.append(ImageAsset(
                     id: smbID(path: filePath),
-                    sourceType: .filesystem,
+                    sourceType: .smb,
                     filename: name,
                     pixelWidth: 0,
                     pixelHeight: 0,
@@ -302,8 +302,6 @@ public final class SMBSource: LibrarySource, @unchecked Sendable {
             let isDir = (item[.isDirectoryKey] as? Bool) ?? false
 
             if !isDir, Self.isImageFilename(name) {
-                count += 1
-            } else if Self.isImageFilename(name) {
                 count += 1
             }
         }
