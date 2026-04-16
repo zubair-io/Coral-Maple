@@ -22,7 +22,8 @@ let package = Package(
             dependencies: [
                 .product(name: "AMSMB2", package: "AMSMB2"),
             ],
-            path: "Sources/CoralCore"
+            path: "Sources/CoralCore",
+            resources: [.process("Pipeline/CustomKernels")]
         ),
         .target(
             name: "TestSupport",

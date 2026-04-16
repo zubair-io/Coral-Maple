@@ -76,6 +76,20 @@ public actor ThumbnailLoader {
         memoryCache.removeAll()
     }
 
+    /// Remove cached thumbnails for a specific asset — used after an edit saves
+    /// so the grid refetches the regenerated thumbnail.
+    public func invalidate(assetID: String) {
+        memoryCache.removeAll { key in key.hasPrefix("\(assetID)_") }
+    }
+
+    /// Store an already-rendered thumbnail directly in the memory cache.
+    /// Used after an edit so the grid shows the new thumbnail immediately,
+    /// without waiting for the source to re-read it from disk.
+    public func prime(assetID: String, size: CGSize, image: CGImage) {
+        let maxDim = Int(max(size.width, size.height))
+        memoryCache.set("\(assetID)_\(maxDim)", value: image)
+    }
+
     /// Clear memory cache and reset for a new session.
     public func clearAll() {
         memoryCache.removeAll()
@@ -159,5 +173,11 @@ struct LRUCache<Key: Hashable, Value>: Sendable where Key: Sendable, Value: Send
     mutating func removeAll() {
         storage.removeAll()
         nextTimestamp = 0
+    }
+
+    mutating func removeAll(where predicate: (Key) -> Bool) {
+        for key in storage.keys where predicate(key) {
+            storage.removeValue(forKey: key)
+        }
     }
 }

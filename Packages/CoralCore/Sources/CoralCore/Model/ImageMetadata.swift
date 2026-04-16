@@ -21,6 +21,10 @@ public struct ImageMetadata: Sendable {
     public var bitDepth: Int?
     public var fileSize: String?
 
+    // White Balance (as-shot from EXIF)
+    public var asShotTemperature: Double?  // Kelvin
+    public var asShotTint: Double?
+
     // Date
     public var dateTaken: String?
     public var dateModified: String?
@@ -93,6 +97,26 @@ public struct ImageMetadata: Sendable {
             }
             if let date = exif[kCGImagePropertyExifDateTimeOriginal] as? String {
                 meta.dateTaken = date
+            }
+            // White balance from EXIF
+            if let wb = exif[kCGImagePropertyExifWhiteBalance] as? Int {
+                // 0 = auto, 1 = manual
+                _ = wb
+            }
+        }
+
+        // DNG / TIFF white balance
+        if let tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any] {
+            meta.cameraMake = meta.cameraMake ?? (tiff[kCGImagePropertyTIFFMake] as? String)
+            meta.cameraModel = meta.cameraModel ?? (tiff[kCGImagePropertyTIFFModel] as? String)
+        }
+
+        // As-shot WB: use EXIF ColorTemperature if available (not reliable for most DNGs).
+        // The correct way to get as-shot WB is via CIRAWFilter.neutralTemperature,
+        // which reads the DNG calibration tags. See RAWDecodeEngine.asShotWB().
+        if let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] {
+            if let colorTemp = exif["ColorTemperature" as CFString] as? Double {
+                meta.asShotTemperature = colorTemp
             }
         }
 

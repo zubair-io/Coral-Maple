@@ -15,6 +15,31 @@ public final class FilesystemSource: LibrarySource, @unchecked Sendable {
     /// Security-scoped access only works on the original resolved URL, not one reconstructed from a string.
     private var scopedURLs: [String: URL] = [:]
 
+    /// Fires after `rootContainers()` has been called at least once, which
+    /// resolves bookmarks and populates `scopedURLs`. Code that needs
+    /// security-scoped access (e.g. restoring the last-viewed folder) should
+    /// `await ensureReady()` before touching the filesystem.
+    private var readyContinuations: [CheckedContinuation<Void, Never>] = []
+    private var isReady = false
+
+    /// Wait until bookmarks have been resolved and scoped URLs are available.
+    public func ensureReady() async {
+        if isReady { return }
+        await withCheckedContinuation { continuation in
+            if isReady {
+                continuation.resume()
+            } else {
+                readyContinuations.append(continuation)
+            }
+        }
+    }
+
+    private func markReady() {
+        isReady = true
+        for c in readyContinuations { c.resume() }
+        readyContinuations.removeAll()
+    }
+
     /// Supported image UTTypes for browsing.
     public static let supportedTypes: Set<UTType> = [
         .jpeg, .png, .tiff, .heic, .heif, .bmp, .gif, .webP,
@@ -43,6 +68,7 @@ public final class FilesystemSource: LibrarySource, @unchecked Sendable {
             scopedURLs[container.id] = url
             results.append(container)
         }
+        markReady()
         return results
     }
 
@@ -341,14 +367,16 @@ public final class FilesystemSource: LibrarySource, @unchecked Sendable {
     // MARK: - Private
 
     private func buildContainer(for url: URL) -> SourceContainer {
-        let accessing = url.startAccessingSecurityScopedResource()
-        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        // Use the bookmarked ancestor URL for security scope — the `url` itself
+        // may be a child path that doesn't carry a security-scoped bookmark.
+        let scopeURL = findScopedParent(for: url) ?? url
+        let accessing = scopeURL.startAccessingSecurityScopedResource()
+        defer { if accessing { scopeURL.stopAccessingSecurityScopedResource() } }
 
         var children: [SourceContainer] = []
         var imageCount = 0
 
-        // Try FileManager first, fall back to POSIX opendir for SMB LiveFiles paths
-        let contents = listDirectory(at: url)
+        let contents = listDirectory(at: url, scopeURL: scopeURL)
 
         for itemURL in contents {
             if itemURL.lastPathComponent.hasPrefix(".") { continue }

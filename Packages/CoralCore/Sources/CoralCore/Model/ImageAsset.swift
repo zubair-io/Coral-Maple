@@ -105,10 +105,14 @@ public protocol LibrarySource: Sendable {
 
     /// Load file data for metadata extraction. Returns enough bytes to read EXIF/IPTC.
     func metadataData(for asset: ImageAsset) async throws -> Data
+
+    /// Load the complete file data (for RAW decode when no file URL is available).
+    func fullImageData(for asset: ImageAsset) async throws -> Data
 }
 
 extension LibrarySource {
     public func subfolders(in container: SourceContainer) async throws -> [SourceContainer] { [] }
 
     public func metadataData(for asset: ImageAsset) async throws -> Data { Data() }
+    public func fullImageData(for asset: ImageAsset) async throws -> Data { Data() }
 }

@@ -130,7 +130,7 @@ public final class SMBSource: LibrarySource, @unchecked Sendable {
         let isRAW = ["cr2", "cr3", "nef", "arw", "raf", "orf", "rw2", "dng", "pef", "srw"].contains(ext)
 
         // RAW: try partial reads first (embedded preview is in the header)
-        let chunkSizes: [UInt64] = isRAW ? [512 * 1024, 2 * 1024 * 1024] : []
+        let chunkSizes: [UInt64] = isRAW ? [UInt64(512 * 1024), UInt64(2 * 1024 * 1024)] : []
         var thumbnail: CGImage?
 
         for chunkSize in chunkSizes {
@@ -162,6 +162,58 @@ public final class SMBSource: LibrarySource, @unchecked Sendable {
         let client = try await ensureConnected()
         // EXIF/IPTC/GPS is always in the first 256KB of any image format
         return try await client.contents(atPath: path, range: 0..<(256 * 1024))
+    }
+
+    public func fullImageData(for asset: ImageAsset) async throws -> Data {
+        let path = smbPath(from: asset.id)
+        NSLog("[CoralMaple] SMBSource.fullImageData: downloading %@", path)
+        let client = try await ensureConnected()
+        let data = try await client.contents(atPath: path)
+        NSLog("[CoralMaple] SMBSource.fullImageData: got %d bytes", data.count)
+        return data
+    }
+
+    /// Write an XMP sidecar next to the image on the SMB share.
+    /// e.g. `/Photos/France/IMG_001.DNG` → `/Photos/France/IMG_001.xmp`
+    public func writeSidecar(_ model: AdjustmentModel, for asset: ImageAsset) async throws {
+        let path = smbPath(from: asset.id)
+        let stem = (path as NSString).deletingPathExtension
+        let sidecarPath = stem + ".xmp"
+
+        let serializer = XMPSerializer()
+        let xmpData = serializer.serialize(model)
+
+        let client = try await ensureConnected()
+
+        // Try to remove existing file first (ignore error if not found)
+        do {
+            try await client.removeFile(atPath: sidecarPath)
+            NSLog("[CoralMaple] SMB: deleted existing sidecar at %@", sidecarPath)
+        } catch {
+            NSLog("[CoralMaple] SMB: no existing sidecar (or delete failed): %@", "\(error)")
+        }
+
+        // Small delay to let SMB server process the delete
+        try? await Task.sleep(for: .milliseconds(100))
+
+        try await client.write(data: xmpData, toPath: sidecarPath, progress: nil)
+        NSLog("[CoralMaple] SMB: sidecar written to %@", sidecarPath)
+    }
+
+    /// Read an XMP sidecar from next to the image on the SMB share.
+    public func readSidecar(for asset: ImageAsset) async throws -> AdjustmentModel? {
+        let path = smbPath(from: asset.id)
+        let stem = (path as NSString).deletingPathExtension
+        let sidecarPath = stem + ".xmp"
+
+        let client = try await ensureConnected()
+        guard let data = try? await client.contents(atPath: sidecarPath),
+              !data.isEmpty else {
+            return nil
+        }
+
+        let parser = XMPParser()
+        return try parser.parse(data: data)
     }
 
     /// Write thumbnail JPEG to SMB cache in the background — non-blocking.

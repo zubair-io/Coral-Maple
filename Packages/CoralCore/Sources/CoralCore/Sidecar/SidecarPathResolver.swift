@@ -16,10 +16,11 @@ public struct SidecarPathResolver: Sendable {
         if let override = photoKitSidecarRoot {
             self.photoKitSidecarRoot = override
         } else {
-            let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
-                ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Pictures")
-            self.photoKitSidecarRoot = pictures
-                .appendingPathComponent("Coral Maple", isDirectory: true)
+            // Use app support directory — always writable in sandbox
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+            self.photoKitSidecarRoot = appSupport
+                .appendingPathComponent("CoralMaple", isDirectory: true)
                 .appendingPathComponent("sidecars", isDirectory: true)
         }
     }
@@ -28,8 +29,12 @@ public struct SidecarPathResolver: Sendable {
         switch asset.sourceType {
         case .filesystem:
             guard let fileURL = asset.fileURL else {
-                // Fallback: use PhotoKit path strategy with the asset ID
-                return photoKitSidecarRoot.appendingPathComponent("\(asset.id).xmp")
+                // SMB or other non-file asset — sanitize ID into a valid filename
+                let sanitized = asset.id
+                    .replacingOccurrences(of: "://", with: "_")
+                    .replacingOccurrences(of: "/", with: "_")
+                    .replacingOccurrences(of: ":", with: "_")
+                return photoKitSidecarRoot.appendingPathComponent("\(sanitized).xmp")
             }
             return fileURL.deletingPathExtension().appendingPathExtension("xmp")
 

@@ -124,9 +124,7 @@ struct ImageGridView: View {
                     }
 
                     // Images
-                    ForEach(0..<viewModel.assetSlots.count, id: \.self) { index in
-                        let slot = viewModel.assetSlots[index]
-
+                    ForEach(Array(viewModel.assetSlots.enumerated()), id: \.offset) { index, slot in
                         if let asset = slot {
                             ThumbnailCell(
                                 asset: asset,
@@ -205,6 +203,10 @@ struct ThumbnailCell: View {
     @State private var thumbnail: CGImage?
     @State private var loadTask: Task<Void, Never>?
     @State private var isVisible = false
+    /// The tick value when this cell last loaded its thumbnail. If the
+    /// view-model's tick has advanced past this, the thumb is stale and
+    /// should be re-fetched on the next `onAppear`.
+    @State private var loadedAtTick: UInt64 = 0
 
     var body: some View {
         RoundedRectangle(cornerRadius: 4)
@@ -232,9 +234,23 @@ struct ThumbnailCell: View {
                 loadTask?.cancel()
                 loadTask = nil
             }
+            .onChange(of: viewModel.lastRegeneratedTick) { _, _ in
+                // Reload only if the regeneration was for this cell's asset.
+                guard viewModel.lastRegeneratedAssetID == asset.id else { return }
+                if isVisible {
+                    loadTask?.cancel()
+                    startLoad()
+                }
+                // If offscreen, onAppear will catch it via the tick comparison.
+            }
             .onAppear {
                 isVisible = true
-                guard thumbnail == nil, loadTask == nil else { return }
+                // Reload if: never loaded, OR a regen happened for our asset
+                // while we were offscreen (tick advanced past our snapshot).
+                let needsReload = thumbnail == nil
+                    || (viewModel.lastRegeneratedAssetID == asset.id
+                        && viewModel.lastRegeneratedTick > loadedAtTick)
+                guard needsReload, loadTask == nil else { return }
                 startLoad()
             }
             .onDisappear {
@@ -255,6 +271,7 @@ struct ThumbnailCell: View {
             withAnimation(.easeIn(duration: 0.15)) {
                 thumbnail = result
             }
+            loadedAtTick = viewModel.lastRegeneratedTick
         }
     }
 }

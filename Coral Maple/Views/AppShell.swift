@@ -3,6 +3,7 @@ import CoralCore
 
 struct AppShell: View {
     @State private var viewModel = UnifiedLibraryViewModel()
+    @State private var editSession = EditSession()
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var selectedTab: DetailTab = .info
 
@@ -34,31 +35,42 @@ struct AppShell: View {
         }
         .background(JM.bg)
         .environment(viewModel)
+        .environment(editSession)
         .preferredColorScheme(.dark)
         .onChange(of: viewModel.appMode) { _, newMode in
             withAnimation(.easeInOut(duration: 0.2)) {
                 switch newMode {
-                case .fullImage:
+                case .fullImage(let assetID):
                     columnVisibility = .doubleColumn
+                    selectedTab = .color  // Auto-switch to Color panel
+                    // Begin editing
+                    if let asset = viewModel.loadedAssetsByID[assetID],
+                       let source = viewModel.activeSource {
+                        Task { await editSession.beginEditing(asset: asset, source: source) }
+                    }
                 case .browse:
                     columnVisibility = .all
+                    selectedTab = .info
+                    Task { await editSession.endEditing() }
                 }
             }
         }
-        // Save last loaded folder
         .onChange(of: viewModel.activeContainer?.id) { _, newID in
             if let newID, let name = viewModel.activeContainer?.name {
                 lastContainerID = newID
                 lastContainerName = name
             }
         }
-        // Restore last folder on launch
         .task {
+            // Wire edit-session → view-model so the grid thumbnail refreshes
+            // after each save. Captured once; fine for the app lifetime.
+            editSession.onThumbnailRegenerated = { [viewModel] assetID, image in
+                Task { await viewModel.applyRegeneratedThumbnail(image, for: assetID) }
+            }
+
             guard !hasRestoredLastFolder, !lastContainerID.isEmpty else { return }
             hasRestoredLastFolder = true
-            // Small delay to let sources load first
-            try? await Task.sleep(for: .milliseconds(500))
-            restoreLastFolder()
+            await restoreLastFolder()
         }
     }
 
@@ -74,23 +86,24 @@ struct AppShell: View {
         .background(JM.bg)
     }
 
-    private func restoreLastFolder() {
+    private func restoreLastFolder() async {
         let id = lastContainerID
         let name = lastContainerName
-        let container = SourceContainer(id: id, name: name, children: [], imageCount: 0)
+
+        if id.hasPrefix("smb://") { return }
 
         let source: any LibrarySource
         if id.hasPrefix("photokit://") {
             source = photoKitSource
-        } else if id.hasPrefix("smb://") {
-            // SMB sources need to be connected first — skip for now
-            return
         } else {
+            // Wait for bookmarks to be resolved and scopedURLs populated —
+            // without this, the security scope isn't available and opendir
+            // fails with EPERM on sandboxed volumes.
+            await filesystemSource.ensureReady()
             source = filesystemSource
         }
 
-        Task {
-            await viewModel.loadAssets(from: container, source: source)
-        }
+        let container = SourceContainer(id: id, name: name, children: [], imageCount: 0)
+        await viewModel.loadAssets(from: container, source: source)
     }
 }

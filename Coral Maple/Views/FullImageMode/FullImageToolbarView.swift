@@ -1,9 +1,10 @@
 import SwiftUI
 import CoralCore
 
-/// Toolbar for full-image mode — back, filename, zoom, flags, export.
+/// Toolbar for full-image mode — back, filename, export.
 struct FullImageToolbarView: ToolbarContent {
     @Environment(UnifiedLibraryViewModel.self) private var viewModel
+    @Binding var showExportSheet: Bool
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
@@ -26,6 +27,16 @@ struct FullImageToolbarView: ToolbarContent {
                     .foregroundStyle(JM.textMain)
                     .padding(.horizontal, 16)
             }
+        }
+
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                showExportSheet = true
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 14))
+            }
+            .accessibilityLabel("Export")
         }
     }
 }

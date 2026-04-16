@@ -92,6 +92,11 @@ public final class UnifiedLibraryViewModel {
     /// All asset IDs we've loaded so far (for selection lookup).
     public private(set) var loadedAssetsByID: [String: ImageAsset] = [:]
 
+    /// Monotonic generation counter — incremented on each `loadAssets` call.
+    /// Every async continuation checks this before writing state, so a stale
+    /// load from a previously-selected folder is silently dropped.
+    private var loadGeneration: UInt64 = 0
+
     public init(sidecarStore: XMPSidecarStore = XMPSidecarStore(), thumbnailLoader: ThumbnailLoader = ThumbnailLoader()) {
         self.sidecarStore = sidecarStore
         self.thumbnailLoader = thumbnailLoader
@@ -100,7 +105,17 @@ public final class UnifiedLibraryViewModel {
     // MARK: - Loading
 
     public func loadAssets(from container: SourceContainer, source: any LibrarySource) async {
+        // Bump generation — any in-flight load for the previous folder will
+        // see a stale `gen` and stop writing into our arrays.
+        loadGeneration &+= 1
+        let gen = loadGeneration
+
         await thumbnailLoader.cancelAll()
+
+        // Release iterator + security scope resources for the old folder.
+        if let oldContainer = activeContainer {
+            (activeSource as? FilesystemSource)?.resetCache(for: oldContainer.id)
+        }
 
         activeContainer = container
         activeSource = source
@@ -118,12 +133,18 @@ public final class UnifiedLibraryViewModel {
             async let fetchedCount = source.assetCount(in: container)
 
             subfolders = (try? await fetchedSubfolders) ?? []
+
+            // Bail if the user already clicked another folder
+            guard gen == loadGeneration else { return }
+
             totalAssetCount = try await fetchedCount
+            guard gen == loadGeneration else { return }
 
             assetSlots = Array(repeating: nil, count: totalAssetCount)
             isLoading = false
-            await loadPage(0)
+            await loadPage(0, generation: gen)
         } catch {
+            guard gen == loadGeneration else { return }
             NSLog("[CoralMaple] loadAssets: ERROR %@", "\(error)")
             totalAssetCount = 0
             assetSlots = []
@@ -138,16 +159,20 @@ public final class UnifiedLibraryViewModel {
         let page = index / Self.pageSize
         guard !loadedPages.contains(page) else { return }
         loadedPages.insert(page)
-        Task { await loadPage(page) }
+        let gen = loadGeneration
+        Task { await loadPage(page, generation: gen) }
     }
 
-    private func loadPage(_ page: Int) async {
+    private func loadPage(_ page: Int, generation gen: UInt64) async {
+        guard gen == loadGeneration else { return }
         guard let source = activeSource, let container = activeContainer else { return }
         let offset = page * Self.pageSize
         guard offset < totalAssetCount else { return }
 
         do {
             let assets = try await source.assets(in: container, offset: offset, limit: Self.pageSize)
+            // Check generation AFTER the await — another folder may have been selected.
+            guard gen == loadGeneration else { return }
             for (i, asset) in assets.enumerated() {
                 let slotIndex = offset + i
                 guard slotIndex < assetSlots.count else { break }
@@ -155,6 +180,7 @@ public final class UnifiedLibraryViewModel {
                 loadedAssetsByID[asset.id] = asset
             }
         } catch {
+            guard gen == loadGeneration else { return }
             NSLog("[CoralMaple] loadPage %d: ERROR %@", page, "\(error)")
             let failures = (pageFailures[page] ?? 0) + 1
             pageFailures[page] = failures
@@ -291,6 +317,26 @@ public final class UnifiedLibraryViewModel {
     public func thumbnail(for asset: ImageAsset, size: CGSize, source: any LibrarySource) async -> CGImage? {
         await thumbnailLoader.thumbnail(for: asset, size: size, source: source)
     }
+
+    /// Replace the cached grid thumbnail for an asset (e.g. after an edit saves).
+    /// Invalidates any other cached sizes so they're re-read with the new content.
+    public func applyRegeneratedThumbnail(_ image: CGImage, for assetID: String) async {
+        await thumbnailLoader.invalidate(assetID: assetID)
+        // Prime the size the grid requests — see ImageGridView (280pt × 2 for retina).
+        let primeSize = CGSize(width: 560, height: 560)
+        await thumbnailLoader.prime(assetID: assetID, size: primeSize, image: image)
+        // Publish the regen event so visible grid cells of this asset refresh.
+        lastRegeneratedAssetID = assetID
+        lastRegeneratedTick &+= 1
+    }
+
+    /// The asset whose thumbnail was most recently regenerated. Grid cells
+    /// observe this together with `lastRegeneratedTick` to know when to reload.
+    public private(set) var lastRegeneratedAssetID: String?
+
+    /// Bumped alongside `lastRegeneratedAssetID` so back-to-back regenerations
+    /// of the same asset still trigger a fresh reload.
+    public private(set) var lastRegeneratedTick: UInt64 = 0
 
     // MARK: - Private
 
